@@ -393,3 +393,34 @@ class RememberCalledTest(unittest.TestCase):
         self.assertEqual(google_mock_store_requests.call['count'], 1)
         request = google_mock_store_requests.call['requests'][0]
         self.assertEqual(request.body, 'query=foo')
+
+
+class _NoNetworkAdapter(requests.adapters.BaseAdapter):
+    def send(self, request, **kwargs):
+        raise AssertionError('Unexpected real HTTP transport')
+
+    def close(self):
+        pass
+
+
+class InvalidBodyTest(unittest.TestCase):
+    def setUp(self):
+        self.session = requests.Session()
+        self.session.trust_env = False
+        self.session.mount('http://', _NoNetworkAdapter())
+        self.addCleanup(self.session.close)
+
+    def test_float_body_is_rejected(self):
+        with HTTMock(lambda url, request: 'ok'):
+            with self.assertRaises(TypeError):
+                self.session.post('http://example.invalid/', data=2.0)
+
+    def test_valid_body_types_are_accepted(self):
+        from io import BytesIO
+
+        body_file = BytesIO(b'payload')
+        self.addCleanup(body_file.close)
+        with HTTMock(lambda url, request: 'ok'):
+            for body in ('payload', b'payload', body_file):
+                result = self.session.post('http://example.invalid/', data=body)
+                self.assertEqual(result.status_code, 200)
